@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:17
+    container_name: jungle-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: jungle
+      POSTGRES_PASSWORD: jungle
+      POSTGRES_DB: jungle_day1
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
