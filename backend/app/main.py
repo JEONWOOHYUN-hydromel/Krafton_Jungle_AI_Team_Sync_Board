@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from jwt import InvalidTokenError
 
+from .routers.integrations_github import router as github_router
 from .routers.integrations_notion import router as notion_router
 from .schemas import (
     CommentCreate,
@@ -52,6 +53,7 @@ app.add_middleware(
 )
 
 app.include_router(notion_router)
+app.include_router(github_router)
 
 
 @app.get("/health")
