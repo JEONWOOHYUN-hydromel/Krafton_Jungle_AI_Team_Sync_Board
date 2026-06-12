@@ -127,3 +127,13 @@ class CommentRead(BaseModel):
 
 class CommentUpdate(BaseModel):
     content: Optional[str] = Field(default=None, min_length=1)
+
+
+class AskDocsRequest(BaseModel):
+    question: str = Field(min_length=1)
+    top_k: int = 5
+
+
+class SyncDocumentsRequest(BaseModel):
+    notion_limit: int = 20
+    post_limit: int = 100

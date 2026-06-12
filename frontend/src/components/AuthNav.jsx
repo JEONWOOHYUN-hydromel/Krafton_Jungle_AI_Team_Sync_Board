@@ -24,6 +24,7 @@ function AuthNav() {
       <Link to="/posts">게시글 목록</Link>
       <Link to="/notion-docs">Notion 문서</Link>
       <Link to="/dashboard">Dashboard</Link>
+      <Link to="/rag">RAG</Link>
 
       {loggedIn ? (
         <>

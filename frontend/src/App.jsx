@@ -8,6 +8,7 @@ import PostsPage from './pages/PostsPage'
 import SignupPage from './pages/SignupPage'
 import NotionDocsPage from './pages/NotionDocsPage'
 import DashboardPage from './pages/DashboardPage'
+import RagPage from './pages/RagPage'
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/notion-docs" element={<NotionDocsPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
+      <Route path="/rag" element={<RagPage />} />
       <Route path="/posts" element={<PostsPage />} />
       <Route path="/posts/new" element={<PostCreatePage />} />
       <Route path="/posts/:postId" element={<PostDetailPage />} />
