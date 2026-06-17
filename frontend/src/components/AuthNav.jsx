@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { isLoggedIn, removeAccessToken } from '../api/authApi'
 
 function AuthNav() {
@@ -13,33 +13,46 @@ function AuthNav() {
   }
 
   return (
-    <nav
-      style={{
-        display: 'flex',
-        gap: '12px',
-        alignItems: 'center',
-        marginBottom: '16px',
-      }}
-    >
-      <Link to="/posts">게시글 목록</Link>
-      <Link to="/notion-docs">Notion 문서</Link>
-      <Link to="/dashboard">Dashboard</Link>
-      <Link to="/rag">RAG</Link>
+    <nav className="app-nav" aria-label="Primary">
+      <Link className="brand" to="/posts">
+        <span className="brand-mark">ATS</span>
+        <span>팀 싱크 보드</span>
+      </Link>
 
-      {loggedIn ? (
-        <>
-          <Link to="/posts/new">새 글 작성</Link>
+      <div className="nav-links">
+        <NavLink className="nav-link" to="/posts">
+          작업 로그
+        </NavLink>
+        <NavLink className="nav-link" to="/dashboard">
+          대시보드
+        </NavLink>
+        <NavLink className="nav-link" to="/notion-docs">
+          문서
+        </NavLink>
+        <NavLink className="nav-link" to="/rag">
+          RAG
+        </NavLink>
 
-          <button type="button" onClick={handleLogout}>
-            로그아웃
-          </button>
-        </>
-      ) : (
-        <>
-          <Link to="/login">로그인</Link>
-          <Link to="/signup">회원가입</Link>
-        </>
-      )}
+        {loggedIn ? (
+          <>
+            <Link className="nav-link primary" to="/posts/new">
+              새 로그
+            </Link>
+            <button className="nav-button" type="button" onClick={handleLogout}>
+              로그아웃
+            </button>
+          </>
+        ) : (
+          <>
+            <Link className="nav-link" to="/login">
+              로그인
+            </Link>
+            <Link className="nav-link primary" to="/signup">
+              회원가입
+            </Link>
+          </>
+        )}
+      </div>
     </nav>
   )
 }

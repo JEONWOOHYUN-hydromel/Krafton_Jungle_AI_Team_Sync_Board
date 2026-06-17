@@ -1,52 +1,99 @@
-import { useEffect, useState } from 'react'
-import AuthNav from '../components/AuthNav'
+import { useEffect, useMemo, useState } from 'react'
+import AppLayout from '../components/AppLayout'
+import { Badge, Button, Card, CardHeader, EmptyState, ErrorMessage, Loading } from '../components/ui'
 import { createTeamSummary, createTodayBriefing } from '../api/aiApi'
-
 import {
   getGithubCommits,
   getGithubIssues,
   getGithubPullRequests,
 } from '../api/githubApi'
+import { getNotionDocs } from '../api/notionApi'
+import { getPosts } from '../api/postApi'
+import {
+  formatDateTime,
+  getPriorityLabel,
+  getStatusClass,
+  getStatusLabel,
+  getTypeLabel,
+} from '../utils/display'
 
-function DashboardSection({ title, isLoading, error, children }) {
+function MiniLog({ post }) {
   return (
-    <section
-      style={{
-        border: '1px solid #ddd',
-        borderRadius: '8px',
-        padding: '16px',
-        marginBottom: '16px',
-      }}
-    >
-      <h2 style={{ marginTop: 0 }}>{title}</h2>
-
-      {isLoading && <p>불러오는 중...</p>}
-      {error && <p style={{ color: 'red' }}>에러: {error}</p>}
-      {!isLoading && !error && children}
-    </section>
+    <li className="mini-row">
+      <div>
+        <strong>{post.title}</strong>
+        <p>
+          {getTypeLabel(post.type)} · {post.due_date ? `마감 ${post.due_date}` : '마감 없음'}
+        </p>
+      </div>
+      <Badge tone={getStatusClass(post.status)}>{getStatusLabel(post.status)}</Badge>
+    </li>
   )
 }
 
 function DashboardPage() {
+  const [posts, setPosts] = useState([])
   const [issues, setIssues] = useState([])
   const [pulls, setPulls] = useState([])
   const [commits, setCommits] = useState([])
+  const [notionDocs, setNotionDocs] = useState([])
 
   const [todayBriefing, setTodayBriefing] = useState(null)
   const [teamSummary, setTeamSummary] = useState(null)
+  const [activeBriefing, setActiveBriefing] = useState('today')
   const [isAiLoading, setIsAiLoading] = useState(false)
   const [aiError, setAiError] = useState(null)
 
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  const metrics = useMemo(() => {
+    return {
+      openTasks: posts.filter((post) => post.status === 'todo').length,
+      inProgress: posts.filter((post) => post.status === 'in_progress').length,
+      blockers: posts.filter((post) => post.status === 'blocked').length,
+      openPrs: pulls.length,
+    }
+  }, [posts, pulls])
+
+  const highPriorityPosts = posts.filter((post) => post.priority === 'high').slice(0, 3)
+  const recentLogs = posts.slice(0, 3)
+
+  useEffect(() => {
+    async function loadDashboard() {
+      try {
+        setIsLoading(true)
+        setError(null)
+
+        const [postsData, issuesData, pullsData, commitsData, notionData] =
+          await Promise.all([
+            getPosts({ page: 1, size: 24 }),
+            getGithubIssues({ state: 'open', per_page: 20 }),
+            getGithubPullRequests({ state: 'open', per_page: 20 }),
+            getGithubCommits({ per_page: 20 }),
+            getNotionDocs({ page_size: 6 }),
+          ])
+
+        setPosts(postsData.items ?? [])
+        setIssues(issuesData)
+        setPulls(pullsData)
+        setCommits(commitsData)
+        setNotionDocs(notionData.items ?? [])
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadDashboard()
+  }, [])
+
   async function handleCreateTodayBriefing() {
     try {
       setIsAiLoading(true)
       setAiError(null)
-
-      const data = await createTodayBriefing()
-      setTodayBriefing(data)
+      setTodayBriefing(await createTodayBriefing())
     } catch (err) {
       setAiError(err.message)
     } finally {
@@ -58,9 +105,7 @@ function DashboardPage() {
     try {
       setIsAiLoading(true)
       setAiError(null)
-
-      const data = await createTeamSummary()
-      setTeamSummary(data)
+      setTeamSummary(await createTeamSummary())
     } catch (err) {
       setAiError(err.message)
     } finally {
@@ -68,302 +113,228 @@ function DashboardPage() {
     }
   }
 
-  useEffect(() => {
-    async function loadGithubData() {
-      try {
-        setIsLoading(true)
-        setError(null)
-
-        const [issuesData, pullsData, commitsData] = await Promise.all([
-          getGithubIssues({ state: 'open', per_page: 10 }),
-          getGithubPullRequests({ state: 'open', per_page: 10 }),
-          getGithubCommits({ per_page: 10 }),
-        ])
-
-        setIssues(issuesData)
-        setPulls(pullsData)
-        setCommits(commitsData)
-      } catch (err) {
-        setError(err.message)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadGithubData()
-  }, [])
-
   return (
-    <main style={{ padding: '40px', fontFamily: 'sans-serif' }}>
-      <h1>Dashboard</h1>
+    <AppLayout
+      actions={<Button tone="primary" to="/posts/new">새 작업 로그</Button>}
+      description="작업 로그, GitHub 진행 상황, Notion 문서와 AI 요약을 한 화면에서 확인합니다."
+      eyebrow="Project control room"
+      title="Dashboard"
+    >
+      {error && <ErrorMessage error={error} />}
 
-      <AuthNav />
+      <section className="metrics-grid">
+        <Card className="metric-card">
+          <p className="metric-label">Open Tasks</p>
+          <strong>{metrics.openTasks}</strong>
+          <span>아직 착수 전인 작업</span>
+        </Card>
+        <Card className="metric-card">
+          <p className="metric-label">In Progress</p>
+          <strong>{metrics.inProgress}</strong>
+          <span>현재 진행 중</span>
+        </Card>
+        <Card className="metric-card">
+          <p className="metric-label">Blockers</p>
+          <strong>{metrics.blockers}</strong>
+          <span>주의가 필요한 항목</span>
+        </Card>
+        <Card className="metric-card">
+          <p className="metric-label">Open PRs</p>
+          <strong>{metrics.openPrs}</strong>
+          <span>검토 대기 PR</span>
+        </Card>
+      </section>
 
-      <p>
-        GitHub Issue, Pull Request, 최근 commit을 확인하는 대시보드입니다.
-      </p>
+      <section className="dashboard-grid">
+        <Card className="ai-command-card">
+          <CardHeader
+            eyebrow="AI Briefing"
+            title={activeBriefing === 'today' ? '오늘 할 일' : '팀 진행 상황'}
+            description="필요한 요약 하나만 열어 오늘의 판단에 집중합니다."
+            action={
+              <div className="briefing-tabs">
+                <Button
+                  className={`briefing-tab ${activeBriefing === 'today' ? 'active' : ''}`}
+                  onClick={() => setActiveBriefing('today')}
+                >
+                  오늘 할 일
+                </Button>
+                <Button
+                  className={`briefing-tab ${activeBriefing === 'team' ? 'active' : ''}`}
+                  onClick={() => setActiveBriefing('team')}
+                >
+                  팀 진행 상황
+                </Button>
+              </div>
+            }
+          />
 
-      <section
-    style={{
-      border: '1px solid #ddd',
-      borderRadius: '8px',
-      padding: '16px',
-      marginBottom: '16px',
-    }}
-  >
-    <h2 style={{ marginTop: 0 }}>AI 요약</h2>
+          {aiError && <ErrorMessage error={aiError} />}
 
-    <p>
-      게시판 작업 로그, GitHub 진행 상황, Notion 문서를 모아서 요약합니다.
-    </p>
+          <div className="briefing-toolbar">
+            <Button
+              disabled={isAiLoading}
+              onClick={
+                activeBriefing === 'today'
+                  ? handleCreateTodayBriefing
+                  : handleCreateTeamSummary
+              }
+              tone="primary"
+            >
+              {isAiLoading
+                ? '요약 중'
+                : activeBriefing === 'today'
+                  ? '오늘 할 일 생성'
+                  : '팀 진행 상황 생성'}
+            </Button>
+            <Button to="/rag">Ask Docs</Button>
+          </div>
 
-    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-      <button
-        type="button"
-        onClick={handleCreateTodayBriefing}
-        disabled={isAiLoading}
-      >
-        {isAiLoading ? '요약 중...' : '오늘 할 일 AI 요약'}
-      </button>
+          <div className="briefing-body">
+            {activeBriefing === 'today' ? (
+              todayBriefing ? (
+                <>
+                  <p className="briefing-summary">{todayBriefing.summary}</p>
+                  <ul className="compact-list">
+                    {todayBriefing.priority_tasks?.slice(0, 3).map((task, index) => (
+                      <li key={`${task.title}-${index}`}>
+                        <strong>{task.title}</strong>
+                        <span>{task.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="next-action">{todayBriefing.next_action}</p>
+                </>
+              ) : (
+                <EmptyState
+                  title="오늘 요약이 아직 없습니다."
+                  description="버튼을 누르면 현재 작업 상태를 기준으로 생성합니다."
+                />
+              )
+            ) : teamSummary ? (
+                <>
+                  <p className="briefing-summary">{teamSummary.summary}</p>
+                  <ul className="compact-list">
+                    {teamSummary.by_area?.slice(0, 3).map((area, index) => (
+                      <li key={`${area.area}-${index}`}>
+                        <strong>{area.area}</strong>
+                        <span>{area.progress}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <EmptyState
+                  title="팀 요약이 아직 없습니다."
+                  description="진행 영역과 리스크를 AI가 정리합니다."
+                />
+              )}
+          </div>
+        </Card>
 
-      <button
-        type="button"
-        onClick={handleCreateTeamSummary}
-        disabled={isAiLoading}
-      >
-        {isAiLoading ? '요약 중...' : '팀 진행 상황 AI 요약'}
-      </button>
-    </div>
-
-    {aiError && <p style={{ color: 'red' }}>AI 에러: {aiError}</p>}
-
-    {todayBriefing && (
-      <article
-        style={{
-          border: '1px solid #eee',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '12px',
-        }}
-      >
-        <h3>오늘 할 일 요약</h3>
-
-        <p>{todayBriefing.summary}</p>
-
-        <h4>우선 작업</h4>
-        {todayBriefing.priority_tasks?.length > 0 ? (
-          <ul>
-            {todayBriefing.priority_tasks.map((task, index) => (
-              <li key={`${task.title}-${index}`}>
-                <strong>{task.title}</strong> [{task.priority}] - {task.reason}
-                <br />
-                <span>source: {task.source}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>우선 작업이 없습니다.</p>
-        )}
-
-        <h4>GitHub 요약</h4>
-        <p>{todayBriefing.github_summary}</p>
-
-        <h4>참고 Notion 문서</h4>
-        {todayBriefing.notion_references?.length > 0 ? (
-          <ul>
-            {todayBriefing.notion_references.map((doc, index) => (
-              <li key={`${doc.title}-${index}`}>
-                <strong>{doc.title}</strong> - {doc.reason}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>추천 문서가 없습니다.</p>
-        )}
-
-        <h4>Blockers</h4>
-        {todayBriefing.blockers?.length > 0 ? (
-          <ul>
-            {todayBriefing.blockers.map((blocker, index) => (
-              <li key={`${blocker}-${index}`}>{blocker}</li>
-            ))}
-          </ul>
-        ) : (
-          <p>확인된 blocker가 없습니다.</p>
-        )}
-
-        <h4>다음 액션</h4>
-        <p>{todayBriefing.next_action}</p>
-
-        {todayBriefing.data_warnings?.length > 0 && (
-          <>
-            <h4>데이터 경고</h4>
-            <ul>
-              {todayBriefing.data_warnings.map((warning, index) => (
-                <li key={`${warning}-${index}`}>{warning}</li>
+        <Card>
+          <CardHeader
+            action={<Button to="/posts">전체 보기</Button>}
+            eyebrow="Focus"
+            title="Today Focus"
+            description="높은 우선순위 작업만 최대 3개 표시합니다."
+          />
+          {isLoading ? (
+            <Loading />
+          ) : highPriorityPosts.length === 0 ? (
+            <EmptyState title="높은 우선순위 작업이 없습니다." />
+          ) : (
+            <ul className="mini-list">
+              {highPriorityPosts.map((post) => (
+                <MiniLog key={post.id} post={post} />
               ))}
             </ul>
-          </>
-        )}
-      </article>
-    )}
+          )}
+        </Card>
+      </section>
 
-    {teamSummary && (
-      <article
-        style={{
-          border: '1px solid #eee',
-          borderRadius: '8px',
-          padding: '12px',
-        }}
-      >
-        <h3>팀 진행 상황 요약</h3>
-
-        <p>{teamSummary.summary}</p>
-
-        <h4>영역별 진행 상황</h4>
-        {teamSummary.by_area?.length > 0 ? (
-          <ul>
-            {teamSummary.by_area.map((area, index) => (
-              <li key={`${area.area}-${index}`}>
-                <strong>{area.area}</strong>
-                <br />
-                progress: {area.progress}
-                <br />
-                risk: {area.risk}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>영역별 요약이 없습니다.</p>
-        )}
-
-        <h4>Blockers</h4>
-        {teamSummary.blockers?.length > 0 ? (
-          <ul>
-            {teamSummary.blockers.map((blocker, index) => (
-              <li key={`${blocker}-${index}`}>{blocker}</li>
-            ))}
-          </ul>
-        ) : (
-          <p>확인된 blocker가 없습니다.</p>
-        )}
-
-        <h4>추천 액션</h4>
-        {teamSummary.recommended_actions?.length > 0 ? (
-          <ul>
-            {teamSummary.recommended_actions.map((action, index) => (
-              <li key={`${action}-${index}`}>{action}</li>
-            ))}
-          </ul>
-        ) : (
-          <p>추천 액션이 없습니다.</p>
-        )}
-
-        <h4>GitHub 요약</h4>
-        <p>{teamSummary.github_summary}</p>
-
-        <h4>Notion 요약</h4>
-        <p>{teamSummary.notion_summary}</p>
-
-        {teamSummary.data_warnings?.length > 0 && (
-          <>
-            <h4>데이터 경고</h4>
-            <ul>
-              {teamSummary.data_warnings.map((warning, index) => (
-                <li key={`${warning}-${index}`}>{warning}</li>
+      <section className="dashboard-lower-grid">
+        <Card>
+          <CardHeader
+            action={<Button to="/posts">전체 보기</Button>}
+            eyebrow="Work logs"
+            title="최근 작업 로그"
+          />
+          {isLoading ? (
+            <Loading />
+          ) : recentLogs.length === 0 ? (
+            <EmptyState title="작업 로그가 없습니다." />
+          ) : (
+            <ul className="work-feed">
+              {recentLogs.map((post) => (
+                <li key={post.id}>
+                  <div className="feed-marker" />
+                  <div>
+                    <strong>{post.title}</strong>
+                    <p className="one-line">{post.content}</p>
+                    <div className="meta-row">
+                      <Badge>{getTypeLabel(post.type)}</Badge>
+                      <Badge tone={getStatusClass(post.status)}>
+                        {getStatusLabel(post.status)}
+                      </Badge>
+                      <Badge tone={post.priority}>우선순위 {getPriorityLabel(post.priority)}</Badge>
+                    </div>
+                  </div>
+                </li>
               ))}
             </ul>
-          </>
-        )}
-      </article>
-    )}
-  </section>
+          )}
+        </Card>
 
-      <DashboardSection
-        title="Open Issues"
-        isLoading={isLoading}
-        error={error}
-      >
-        {issues.length === 0 ? (
-          <p>열린 Issue가 없습니다.</p>
-        ) : (
-          <ul style={{ paddingLeft: '20px' }}>
-            {issues.map((issue) => (
-              <li key={issue.number} style={{ marginBottom: '12px' }}>
-                <a href={issue.url} target="_blank" rel="noreferrer">
-                  #{issue.number} {issue.title}
-                </a>
-                <br />
-                <span>state: {issue.state}</span>
-                <br />
-                <span>
-                  assignees:{' '}
-                  {issue.assignees.length > 0
-                    ? issue.assignees.join(', ')
-                    : 'none'}
-                </span>
-                <br />
-                <span>
-                  labels:{' '}
-                  {issue.labels.length > 0 ? issue.labels.join(', ') : 'none'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </DashboardSection>
+        <Card>
+          <CardHeader
+            action={<Button to="/github">GitHub 열기</Button>}
+            eyebrow="GitHub"
+            title="개발 진행"
+          />
+          {isLoading ? (
+            <Loading />
+          ) : (
+            <div className="integration-summary">
+              <div>
+                <span>Issues</span>
+                <strong>{issues.length}</strong>
+              </div>
+              <div>
+                <span>Pull Requests</span>
+                <strong>{pulls.length}</strong>
+              </div>
+              <div>
+                <span>Commits</span>
+                <strong>{commits.length}</strong>
+              </div>
+            </div>
+          )}
+        </Card>
 
-      <DashboardSection
-        title="Open Pull Requests"
-        isLoading={isLoading}
-        error={error}
-      >
-        {pulls.length === 0 ? (
-          <p>열린 PR이 없습니다.</p>
-        ) : (
-          <ul style={{ paddingLeft: '20px' }}>
-            {pulls.map((pull) => (
-              <li key={pull.number} style={{ marginBottom: '12px' }}>
-                <a href={pull.url} target="_blank" rel="noreferrer">
-                  #{pull.number} {pull.title}
-                </a>
-                <br />
-                <span>state: {pull.state}</span>
-                <br />
-                <span>author: {pull.user ?? 'unknown'}</span>
-                <br />
-                <span>{pull.draft ? 'draft' : 'ready'}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </DashboardSection>
-
-      <DashboardSection
-        title="Recent Commits"
-        isLoading={isLoading}
-        error={error}
-      >
-        {commits.length === 0 ? (
-          <p>최근 commit이 없습니다.</p>
-        ) : (
-          <ul style={{ paddingLeft: '20px' }}>
-            {commits.map((commit) => (
-              <li key={commit.full_sha} style={{ marginBottom: '12px' }}>
-                <a href={commit.url} target="_blank" rel="noreferrer">
-                  {commit.sha}
-                </a>{' '}
-                {commit.message.split('\n')[0]}
-                <br />
-                <span>author: {commit.author ?? 'unknown'}</span>
-                <br />
-                <span>date: {commit.date}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </DashboardSection>
-    </main>
+        <Card>
+          <CardHeader
+            action={<Button to="/notion-docs">문서 보기</Button>}
+            eyebrow="Notion"
+            title="최근 문서"
+          />
+          {isLoading ? (
+            <Loading />
+          ) : notionDocs.length === 0 ? (
+            <EmptyState title="표시할 Notion 문서가 없습니다." />
+          ) : (
+            <ul className="compact-list">
+              {notionDocs.slice(0, 3).map((doc) => (
+                <li key={doc.page_id}>
+                  <strong>{doc.title}</strong>
+                  <span>수정 {formatDateTime(doc.last_edited_time)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </section>
+    </AppLayout>
   )
 }
 

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import AppLayout from '../components/AppLayout'
 import PostForm from '../components/PostForm'
+import { Button, EmptyState, ErrorMessage, Loading } from '../components/ui'
 import { getPost, updatePost } from '../api/postApi'
 
 function PostEditPage() {
@@ -14,8 +16,9 @@ function PostEditPage() {
   useEffect(() => {
     async function loadPost() {
       try {
-        const data = await getPost(postId)
-        setPost(data)
+        setIsLoading(true)
+        setError(null)
+        setPost(await getPost(postId))
       } catch (err) {
         setError(err.message)
       } finally {
@@ -33,50 +36,41 @@ function PostEditPage() {
 
   if (isLoading) {
     return (
-      <main style={{ padding: '40px', fontFamily: 'sans-serif' }}>
-        <p>게시글을 불러오는 중...</p>
-      </main>
+      <AppLayout title="작업 로그 수정">
+        <Loading message="작업 로그를 불러오는 중입니다." />
+      </AppLayout>
     )
   }
 
   if (error) {
     return (
-      <main style={{ padding: '40px', fontFamily: 'sans-serif' }}>
-        <p>
-          <Link to="/posts">← 목록으로</Link>
-        </p>
-        <h1>작업 로그 수정</h1>
-        <p style={{ color: 'red' }}>에러: {error}</p>
-      </main>
+      <AppLayout actions={<Button to="/posts">목록으로</Button>} title="작업 로그 수정">
+        <ErrorMessage error={error} />
+      </AppLayout>
     )
   }
 
   if (!post) {
     return (
-      <main style={{ padding: '40px', fontFamily: 'sans-serif' }}>
-        <p>
-          <Link to="/posts">← 목록으로</Link>
-        </p>
-        <h1>작업 로그 수정</h1>
-        <p>게시글이 없습니다.</p>
-      </main>
+      <AppLayout actions={<Button to="/posts">목록으로</Button>} title="작업 로그 수정">
+        <EmptyState title="작업 로그를 찾을 수 없습니다." />
+      </AppLayout>
     )
   }
 
   return (
-    <main style={{ padding: '40px', fontFamily: 'sans-serif' }}>
-      <p>
-        <Link to={`/posts/${post.id}`}>← 상세로</Link>
-      </p>
-
-      <h1>작업 로그 수정</h1>
-
+    <AppLayout
+      actions={<Button to={`/posts/${post.id}`}>상세로 돌아가기</Button>}
+      description={post.title}
+      eyebrow={`LOG-${post.id}`}
+      title="작업 로그 수정"
+    >
       <PostForm
         initialValues={post}
         submitLabel="수정하기"
         onSubmit={handleUpdate}
       />
-    </main>
+    </AppLayout>
   )
 }
 

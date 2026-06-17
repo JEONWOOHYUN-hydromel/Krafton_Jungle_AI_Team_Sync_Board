@@ -6,6 +6,8 @@ import {
   getCommentsByPost,
   updateComment,
 } from '../api/commentApi'
+import { formatDateTime } from '../utils/display'
+import { Badge, Button, Card, CardHeader, EmptyState, ErrorMessage, Loading } from './ui'
 
 function CommentSection({ postId }) {
   const loggedIn = isLoggedIn()
@@ -22,8 +24,7 @@ function CommentSection({ postId }) {
     async function loadComments() {
       try {
         setError(null)
-        const data = await getCommentsByPost(postId)
-        setComments(data)
+        setComments(await getCommentsByPost(postId))
       } catch (err) {
         setError(err.message)
       } finally {
@@ -38,7 +39,6 @@ function CommentSection({ postId }) {
     event.preventDefault()
 
     const content = newContent.trim()
-
     if (!content) {
       setError('댓글 내용을 입력해주세요.')
       return
@@ -47,9 +47,7 @@ function CommentSection({ postId }) {
     try {
       setIsSubmitting(true)
       setError(null)
-
       const createdComment = await createComment(postId, { content })
-
       setComments((prev) => [...prev, createdComment])
       setNewContent('')
     } catch (err) {
@@ -71,7 +69,6 @@ function CommentSection({ postId }) {
 
   async function handleUpdateComment(commentId) {
     const content = editingContent.trim()
-
     if (!content) {
       setError('댓글 내용을 입력해주세요.')
       return
@@ -79,15 +76,12 @@ function CommentSection({ postId }) {
 
     try {
       setError(null)
-
       const updatedComment = await updateComment(commentId, { content })
-
       setComments((prev) =>
         prev.map((comment) =>
           comment.id === commentId ? updatedComment : comment,
         ),
       )
-
       cancelEdit()
     } catch (err) {
       setError(err.message)
@@ -96,145 +90,97 @@ function CommentSection({ postId }) {
 
   async function handleDeleteComment(commentId) {
     const confirmed = window.confirm('정말 이 댓글을 삭제할까요?')
-
-    if (!confirmed) {
-      return
-    }
+    if (!confirmed) return
 
     try {
       setError(null)
-
       await deleteComment(commentId)
-
-      setComments((prev) =>
-        prev.filter((comment) => comment.id !== commentId),
-      )
+      setComments((prev) => prev.filter((comment) => comment.id !== commentId))
     } catch (err) {
       setError(err.message)
     }
   }
 
-  if (isLoading) {
-    return (
-      <section style={{ marginTop: '32px' }}>
-        <h2>댓글</h2>
-        <p>댓글을 불러오는 중...</p>
-      </section>
-    )
-  }
-
   return (
-    <section style={{ marginTop: '32px' }}>
-      <h2>댓글</h2>
+    <Card className="comments-card">
+      <CardHeader
+        eyebrow="Discussion"
+        title="댓글"
+        action={<Badge>{comments.length}</Badge>}
+      />
 
-      {error && <p style={{ color: 'red' }}>에러: {error}</p>}
-
-      {loggedIn ? (
-        <form onSubmit={handleCreateComment} style={{ marginBottom: '24px' }}>
-          <div style={{ marginBottom: '8px' }}>
-            <textarea
-              value={newContent}
-              onChange={(event) => setNewContent(event.target.value)}
-              rows={4}
-              placeholder="댓글을 입력하세요."
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? '작성 중...' : '댓글 작성'}
-          </button>
-        </form>
+      {isLoading ? (
+        <Loading message="댓글을 불러오는 중입니다." />
       ) : (
-        <p>댓글을 작성하려면 로그인이 필요합니다.</p>
-      )}
+        <>
+          {error && <ErrorMessage error={error} />}
 
-      {comments.length === 0 ? (
-        <p>아직 댓글이 없습니다.</p>
-      ) : (
-        <ul style={{ padding: 0, listStyle: 'none' }}>
-          {comments.map((comment) => (
-            <li
-              key={comment.id}
-              style={{
-                border: '1px solid #ddd',
-                borderRadius: '8px',
-                padding: '16px',
-                marginBottom: '12px',
-              }}
-            >
-              <p style={{ marginTop: 0 }}>
-                댓글 #{comment.id} / user_id: {comment.user_id ?? 'unknown'}
-              </p>
+          {loggedIn ? (
+            <form className="comment-form" onSubmit={handleCreateComment}>
+              <label className="field">
+                <span>새 댓글</span>
+                <textarea
+                  id="new-comment"
+                  value={newContent}
+                  onChange={(event) => setNewContent(event.target.value)}
+                  rows={4}
+                  placeholder="결정 사항, 확인한 내용, 다음 액션을 남겨주세요."
+                />
+              </label>
+              <Button tone="primary" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? '작성 중' : '댓글 작성'}
+              </Button>
+            </form>
+          ) : (
+            <EmptyState title="댓글 작성은 로그인이 필요합니다." />
+          )}
 
-              {editingCommentId === comment.id ? (
-                <>
-                  <textarea
-                    value={editingContent}
-                    onChange={(event) =>
-                      setEditingContent(event.target.value)
-                    }
-                    rows={4}
-                    style={{
-                      width: '100%',
-                      padding: '8px',
-                      boxSizing: 'border-box',
-                    }}
-                  />
+          {comments.length === 0 ? (
+            <EmptyState title="아직 댓글이 없습니다." />
+          ) : (
+            <ul className="comment-list">
+              {comments.map((comment) => (
+                <li className="comment-item" key={comment.id}>
+                  <div className="comment-meta">
+                    <Badge>comment #{comment.id}</Badge>
+                    <span>user {comment.user_id ?? 'unknown'}</span>
+                    <span>{formatDateTime(comment.updated_at)}</span>
+                  </div>
 
-                  <p style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateComment(comment.id)}
-                    >
-                      저장
-                    </button>
-
-                    <button type="button" onClick={cancelEdit}>
-                      취소
-                    </button>
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p style={{ whiteSpace: 'pre-wrap' }}>{comment.content}</p>
-
-                  <p style={{ fontSize: '14px', color: '#666' }}>
-                    created_at: {comment.created_at}
-                    <br />
-                    updated_at: {comment.updated_at}
-                  </p>
-
-                  {loggedIn && (
-                    <p style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        type="button"
-                        onClick={() => startEdit(comment)}
-                      >
-                        수정
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleDeleteComment(comment.id)
-                        }
-                      >
-                        삭제
-                      </button>
-                    </p>
+                  {editingCommentId === comment.id ? (
+                    <>
+                      <textarea
+                        value={editingContent}
+                        onChange={(event) => setEditingContent(event.target.value)}
+                        rows={4}
+                      />
+                      <div className="form-actions">
+                        <Button tone="primary" onClick={() => handleUpdateComment(comment.id)}>
+                          저장
+                        </Button>
+                        <Button onClick={cancelEdit}>취소</Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p>{comment.content}</p>
+                      {loggedIn && (
+                        <div className="form-actions">
+                          <Button onClick={() => startEdit(comment)}>수정</Button>
+                          <Button tone="danger" onClick={() => handleDeleteComment(comment.id)}>
+                            삭제
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
-    </section>
+    </Card>
   )
 }
 

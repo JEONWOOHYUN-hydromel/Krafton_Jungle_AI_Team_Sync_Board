@@ -1,8 +1,24 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import AppLayout from '../components/AppLayout'
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorMessage,
+  Loading,
+  Select,
+} from '../components/ui'
 import { askDocs, syncDocuments } from '../api/ragApi'
 import { isLoggedIn } from '../api/authApi'
-import AuthNav from '../components/AuthNav'
+
+const syncDetailLabels = {
+  notion: 'Notion',
+  posts: 'Work Logs',
+  github: 'GitHub',
+  git: 'Git Status',
+}
 
 function RagPage() {
   const loggedIn = isLoggedIn()
@@ -16,18 +32,26 @@ function RagPage() {
   const [isAsking, setIsAsking] = useState(false)
   const [error, setError] = useState(null)
 
+  const canAsk = loggedIn && question.trim().length > 0 && !isAsking
+  const syncDetails = syncResult?.details
+    ? Object.entries(syncResult.details).filter(([, detail]) => detail)
+    : []
+
   async function handleSyncDocuments() {
     try {
       setIsSyncing(true)
       setError(null)
       setSyncResult(null)
 
-      const data = await syncDocuments({
-        notion_limit: 10,
-        post_limit: 50,
-      })
-
-      setSyncResult(data)
+      setSyncResult(
+        await syncDocuments({
+          notion_limit: 10,
+          post_limit: 50,
+          github_issue_limit: 20,
+          github_pr_limit: 20,
+          github_commit_limit: 20,
+        }),
+      )
     } catch (err) {
       setError(err.message)
     } finally {
@@ -39,7 +63,6 @@ function RagPage() {
     event.preventDefault()
 
     const trimmedQuestion = question.trim()
-
     if (!trimmedQuestion) {
       setError('질문을 입력해주세요.')
       return
@@ -50,12 +73,12 @@ function RagPage() {
       setError(null)
       setAnswerResult(null)
 
-      const data = await askDocs({
-        question: trimmedQuestion,
-        top_k: topK,
-      })
-
-      setAnswerResult(data)
+      setAnswerResult(
+        await askDocs({
+          question: trimmedQuestion,
+          top_k: topK,
+        }),
+      )
     } catch (err) {
       setError(err.message)
     } finally {
@@ -64,204 +87,144 @@ function RagPage() {
   }
 
   return (
-    <main style={{ padding: '40px', fontFamily: 'sans-serif' }}>
-      <h1>RAG 문서 질문</h1>
-
-      <AuthNav />
-
-      <p>
-        Notion 공식 문서와 게시판 작업 로그를 embedding으로 저장한 뒤,
-        질문과 유사한 문서 chunk를 찾아 답변합니다.
-      </p>
-
+    <AppLayout
+      description="Notion 문서, 작업 로그, GitHub 진행 상황과 현재 git 상태를 검색해 답변합니다."
+      eyebrow="Document intelligence"
+      title="Ask Docs"
+    >
       {!loggedIn && (
-        <section
-          style={{
-            border: '1px solid #ddd',
-            borderRadius: '8px',
-            padding: '16px',
-            marginBottom: '16px',
-          }}
-        >
-          <p>RAG 검색을 사용하려면 로그인이 필요합니다.</p>
-          <Link to="/login">로그인하러 가기</Link>
-        </section>
+        <ErrorMessage message="문서 동기화와 질문 기능은 로그인 후 사용할 수 있습니다." />
       )}
 
-      {error && <p style={{ color: 'red' }}>에러: {error}</p>}
+      {error && <ErrorMessage error={error} />}
 
-      <section
-        style={{
-          border: '1px solid #ddd',
-          borderRadius: '8px',
-          padding: '16px',
-          marginBottom: '16px',
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>1. 문서 동기화</h2>
+      <section className="ask-layout">
+        <Card className="sync-card">
+          <CardHeader
+            eyebrow="Index"
+            title="검색 인덱스 동기화"
+            description="문서와 작업 로그가 크게 바뀐 뒤 한 번 실행하면 최신 근거로 답변합니다."
+          />
 
-        <p>
-          Notion 문서와 게시판 글을 가져와 chunk로 나누고 embedding을
-          저장합니다. 질문하기 전에 한 번 실행해야 합니다.
-        </p>
+          <Button
+            tone="primary"
+            onClick={handleSyncDocuments}
+            disabled={!loggedIn || isSyncing}
+          >
+            {isSyncing ? '동기화 중' : '문서 동기화'}
+          </Button>
 
-        <button
-          type="button"
-          onClick={handleSyncDocuments}
-          disabled={!loggedIn || isSyncing}
-        >
-          {isSyncing ? '동기화 중...' : '문서 동기화 실행'}
-        </button>
+          {isSyncing && <Loading message="문서와 embedding을 준비하는 중입니다." />}
 
-        {syncResult && (
-          <div style={{ marginTop: '16px' }}>
-            <h3>동기화 결과</h3>
+          {syncResult ? (
+            <div className="sync-summary">
+              <div className="meta-row">
+                <Badge>{syncResult.synced_documents} docs</Badge>
+                <Badge>{syncResult.synced_chunks} chunks</Badge>
+              </div>
 
-            <p>동기화 문서 수: {syncResult.synced_documents}</p>
-            <p>동기화 chunk 수: {syncResult.synced_chunks}</p>
-
-            {syncResult.details && (
-              <pre
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  background: '#f7f7f7',
-                  padding: '12px',
-                  borderRadius: '8px',
-                }}
-              >
-                {JSON.stringify(syncResult.details, null, 2)}
-              </pre>
-            )}
-          </div>
-        )}
-      </section>
-
-      <section
-        style={{
-          border: '1px solid #ddd',
-          borderRadius: '8px',
-          padding: '16px',
-          marginBottom: '16px',
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>2. 문서에 질문하기</h2>
-
-        <form onSubmit={handleAskDocs}>
-          <div style={{ marginBottom: '12px' }}>
-            <label htmlFor="question">질문</label>
-            <br />
-            <textarea
-              id="question"
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              rows={4}
-              placeholder="예: 로그인 기능 구현하려면 어떤 문서 봐야 해?"
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box',
-              }}
+              {syncDetails.length > 0 && (
+                <div className="sync-breakdown">
+                  {syncDetails.map(([source, detail]) => (
+                    <span className="sync-source" key={source}>
+                      <strong>{syncDetailLabels[source] ?? source}</strong>
+                      {detail.synced_documents}문서 · {detail.synced_chunks}chunk
+                      {detail.warnings?.length > 0 && <em>경고 {detail.warnings.length}</em>}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <EmptyState
+              description="아직 이 화면에서 동기화한 결과가 없습니다."
+              title="동기화 결과가 없습니다."
             />
-          </div>
+          )}
+        </Card>
 
-          <div style={{ marginBottom: '12px' }}>
-            <label htmlFor="topK">참고 chunk 개수 top_k</label>
-            <br />
-            <select
-              id="topK"
-              value={topK}
-              onChange={(event) => setTopK(Number(event.target.value))}
-            >
-              <option value={3}>3</option>
-              <option value={5}>5</option>
-              <option value={8}>8</option>
-              <option value={10}>10</option>
-            </select>
-          </div>
+        <Card className="ask-card">
+          <CardHeader
+            eyebrow="Ask"
+            title="문서에 질문"
+            description="구체적으로 물을수록 더 좋은 근거 문서를 찾습니다."
+          />
 
-          <button type="submit" disabled={!loggedIn || isAsking}>
-            {isAsking ? '답변 생성 중...' : '질문하기'}
-          </button>
-        </form>
+          <form className="rag-question-form" onSubmit={handleAskDocs}>
+            <label className="field">
+              <span>Question</span>
+              <textarea
+                id="question"
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                rows={8}
+                placeholder="예: 현재 blocker는 무엇이고 담당자는 누구야?"
+              />
+            </label>
+
+            <div className="rag-options-row">
+              <Select
+                id="topK"
+                label="References"
+                value={topK}
+                onChange={(event) => setTopK(Number(event.target.value))}
+              >
+                <option value={3}>3 chunks</option>
+                <option value={5}>5 chunks</option>
+                <option value={8}>8 chunks</option>
+                <option value={10}>10 chunks</option>
+              </Select>
+
+              <Button tone="primary" type="submit" disabled={!canAsk}>
+                {isAsking ? '답변 생성 중' : '질문하기'}
+              </Button>
+            </div>
+          </form>
+        </Card>
       </section>
 
       {answerResult && (
-        <section
-          style={{
-            border: '1px solid #ddd',
-            borderRadius: '8px',
-            padding: '16px',
-          }}
-        >
-          <h2 style={{ marginTop: 0 }}>답변</h2>
+        <section className="answer-layout">
+          <Card className="answer-card">
+            <CardHeader
+              action={<Badge>신뢰도 {answerResult.confidence}</Badge>}
+              eyebrow="Answer"
+              title="AI 답변"
+            />
 
-          <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-            {answerResult.answer}
-          </p>
+            <p className="article-body answer-body">{answerResult.answer}</p>
 
-          <p>
-            confidence: <strong>{answerResult.confidence}</strong>
-          </p>
+            {answerResult.warnings?.length > 0 && (
+              <ErrorMessage message={answerResult.warnings.join(' ')} />
+            )}
+          </Card>
 
-          {answerResult.warnings?.length > 0 && (
-            <>
-              <h3>경고</h3>
-              <ul>
-                {answerResult.warnings.map((warning, index) => (
-                  <li key={`${warning}-${index}`}>{warning}</li>
+          <Card>
+            <CardHeader eyebrow="References" title="참고 근거" />
+            {answerResult.references?.length > 0 ? (
+              <div className="reference-list">
+                {answerResult.references.map((reference, index) => (
+                  <article className="reference-card" key={`${reference.source_type}-${index}`}>
+                    <div>
+                      <Badge>{reference.source_type}</Badge>
+                      <h3>{reference.source_title}</h3>
+                      <p>{reference.reason}</p>
+                    </div>
+                    {reference.source_url && reference.source_url.startsWith('/posts/') ? (
+                      <Button to={reference.source_url}>작업 로그 열기</Button>
+                    ) : reference.source_url ? (
+                      <Button href={reference.source_url}>원문 열기</Button>
+                    ) : null}
+                  </article>
                 ))}
-              </ul>
-            </>
-          )}
-
-          <h3>References</h3>
-
-          {answerResult.references?.length > 0 ? (
-            <ul style={{ padding: 0, listStyle: 'none' }}>
-              {answerResult.references.map((reference, index) => (
-                <li
-                  key={`${reference.source_type}-${reference.source_id}-${index}`}
-                  style={{
-                    border: '1px solid #eee',
-                    borderRadius: '8px',
-                    padding: '12px',
-                    marginBottom: '12px',
-                  }}
-                >
-                  <p style={{ marginTop: 0 }}>
-                    <strong>
-                      [{reference.source_type}] {reference.source_title}
-                    </strong>
-                  </p>
-
-                  <p>source_id: {reference.source_id}</p>
-
-                  <p>{reference.reason}</p>
-
-                  {reference.source_url && (
-                    <p>
-                      {reference.source_url.startsWith('/posts/') ? (
-                        <Link to={reference.source_url}>게시글 열기</Link>
-                      ) : (
-                        <a
-                          href={reference.source_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          원문 열기
-                        </a>
-                      )}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>참고 문서가 없습니다.</p>
-          )}
+              </div>
+            ) : (
+              <EmptyState title="참고 문서가 없습니다." />
+            )}
+          </Card>
         </section>
       )}
-    </main>
+    </AppLayout>
   )
 }
 

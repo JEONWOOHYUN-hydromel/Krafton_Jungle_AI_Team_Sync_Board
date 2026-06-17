@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import AppLayout from '../components/AppLayout'
+import { Button, Card, ErrorMessage, Input } from '../components/ui'
 import { signup } from '../api/authApi'
-import AuthNav from '../components/AuthNav'
 
 function SignupPage() {
   const navigate = useNavigate()
@@ -16,6 +17,12 @@ function SignupPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState(null)
 
+  const canSubmit =
+    formData.email.trim().length > 0 &&
+    formData.password.trim().length >= 4 &&
+    formData.nickname.trim().length > 0 &&
+    !isSubmitting
+
   function handleChange(event) {
     const { name, value } = event.target
 
@@ -27,15 +34,21 @@ function SignupPage() {
 
   async function handleSubmit(event) {
     event.preventDefault()
+
+    if (!canSubmit) {
+      setError('이메일, 비밀번호, 닉네임을 확인해주세요.')
+      return
+    }
+
     setIsSubmitting(true)
     setError(null)
 
     try {
       await signup({
-        email: formData.email,
+        email: formData.email.trim(),
         password: formData.password,
-        nickname: formData.nickname,
-        github_username: formData.github_username || null,
+        nickname: formData.nickname.trim(),
+        github_username: formData.github_username.trim() || null,
       })
 
       navigate('/login')
@@ -47,80 +60,71 @@ function SignupPage() {
   }
 
   return (
-    <main style={{ padding: '40px', fontFamily: 'sans-serif' }}>
-      <AuthNav />
-      <h1>회원가입</h1>
+    <AppLayout compact>
+      <Card className="auth-card">
+          <p className="eyebrow">Join workspace</p>
+          <h1>회원가입</h1>
+          <p className="lead">팀 싱크 보드에 참여할 계정을 만듭니다.</p>
 
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="email">이메일</label>
-          <br />
-          <input
-            id="email"
-            name="email"
-            type="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-          />
-        </div>
+          <form className="section" onSubmit={handleSubmit}>
+            <Input
+              id="email"
+              label="이메일"
+              name="email"
+              type="email"
+              value={formData.email}
+              onChange={handleChange}
+              placeholder="you@example.com"
+              required
+            />
 
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="password">비밀번호</label>
-          <br />
-          <input
-            id="password"
-            name="password"
-            type="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            minLength={4}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-          />
-        </div>
+            <Input
+              className="section"
+              hint="4자 이상 입력해주세요."
+              id="password"
+              label="비밀번호"
+              name="password"
+              type="password"
+              value={formData.password}
+              onChange={handleChange}
+              required
+              minLength={4}
+            />
 
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="nickname">닉네임</label>
-          <br />
-          <input
-            id="nickname"
-            name="nickname"
-            value={formData.nickname}
-            onChange={handleChange}
-            required
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-          />
-        </div>
+            <Input
+              className="section"
+              id="nickname"
+              label="닉네임"
+              name="nickname"
+              value={formData.nickname}
+              onChange={handleChange}
+              required
+            />
 
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="github_username">GitHub username 선택</label>
-          <br />
-          <input
-            id="github_username"
-            name="github_username"
-            value={formData.github_username}
-            onChange={handleChange}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-          />
-        </div>
+            <Input
+              className="section"
+              hint="GitHub 연동 화면에서 작성자를 맞추는 데 사용합니다."
+              id="github_username"
+              label="GitHub username"
+              name="github_username"
+              value={formData.github_username}
+              onChange={handleChange}
+              placeholder="선택 입력"
+            />
 
-        {error && <p style={{ color: 'red' }}>에러: {error}</p>}
+            {error && <ErrorMessage error={error} />}
 
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? '가입 중...' : '회원가입'}
-        </button>
-      </form>
-
-      <p>
-        이미 계정이 있나요? <Link to="/login">로그인</Link>
-      </p>
-
-      <p>
-        <Link to="/posts">게시글 목록으로</Link>
-      </p>
-    </main>
+            <div className="form-actions">
+              <Button tone="primary" type="submit" disabled={!canSubmit}>
+                {isSubmitting ? '가입 중...' : '회원가입'}
+              </Button>
+              <Link className="button" to="/login">
+                로그인
+              </Link>
+            </div>
+          </form>
+      </Card>
+    </AppLayout>
   )
 }
 

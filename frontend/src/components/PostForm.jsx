@@ -1,25 +1,11 @@
 import { useState } from 'react'
-
-const TYPE_OPTIONS = [
-  { value: 'daily_log', label: 'Daily Log' },
-  { value: 'task', label: 'Task' },
-  { value: 'blocker', label: 'Blocker' },
-  { value: 'discussion', label: 'Discussion' },
-  { value: 'retrospective', label: 'Retrospective' },
-]
-
-const STATUS_OPTIONS = [
-  { value: 'todo', label: 'Todo' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'done', label: 'Done' },
-  { value: 'blocked', label: 'Blocked' },
-]
-
-const PRIORITY_OPTIONS = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-]
+import { Button, Card, ErrorMessage, Input, Select } from './ui'
+import {
+  PRIORITY_OPTIONS,
+  STATUS_OPTIONS,
+  TYPE_OPTIONS,
+  formatFriendlyError,
+} from '../utils/display'
 
 function PostForm({ initialValues, submitLabel, onSubmit }) {
   const [formData, setFormData] = useState({
@@ -35,24 +21,31 @@ function PostForm({ initialValues, submitLabel, onSubmit }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState(null)
 
+  const canSubmit =
+    formData.title.trim().length > 0 &&
+    formData.content.trim().length > 0 &&
+    !isSubmitting
+
   function handleChange(event) {
     const { name, value } = event.target
-
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }))
+    setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
   async function handleSubmit(event) {
     event.preventDefault()
+
+    if (!canSubmit) {
+      setError('제목과 내용을 입력해주세요.')
+      return
+    }
+
     setIsSubmitting(true)
     setError(null)
 
     try {
       await onSubmit({
-        title: formData.title,
-        content: formData.content,
+        title: formData.title.trim(),
+        content: formData.content.trim(),
         type: formData.type,
         status: formData.status,
         priority: formData.priority,
@@ -63,126 +56,111 @@ function PostForm({ initialValues, submitLabel, onSubmit }) {
           .filter(Boolean),
       })
     } catch (err) {
-      setError(err.message)
+      setError(formatFriendlyError(err.message))
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div style={{ marginBottom: '16px' }}>
-        <label htmlFor="title">제목</label>
-        <br />
-        <input
-          id="title"
-          name="title"
-          value={formData.title}
-          onChange={handleChange}
-          required
-          style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-        />
+    <Card as="form" className="worklog-form" onSubmit={handleSubmit}>
+      <div className="form-layout">
+        <section className="form-primary">
+          <Input
+            hint="목록에서 바로 이해할 수 있게 액션 중심으로 적어주세요."
+            id="title"
+            label="Title"
+            name="title"
+            onChange={handleChange}
+            placeholder="예: RAG 문서 동기화 안정화"
+            required
+            value={formData.title}
+          />
+
+          <label className="field">
+            <span>Content</span>
+            <textarea
+              id="content"
+              name="content"
+              onChange={handleChange}
+              placeholder="현재 상태, 결정이 필요한 점, 다음 액션을 남겨주세요."
+              required
+              rows={13}
+              value={formData.content}
+            />
+            <small>AI 요약과 문서 검색의 근거가 되므로 맥락을 함께 남기는 것이 좋습니다.</small>
+          </label>
+        </section>
+
+        <aside className="form-sidebar">
+          <Select id="type" label="Type" name="type" onChange={handleChange} value={formData.type}>
+            {TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            id="status"
+            label="Status"
+            name="status"
+            onChange={handleChange}
+            value={formData.status}
+          >
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            id="priority"
+            label="Priority"
+            name="priority"
+            onChange={handleChange}
+            value={formData.priority}
+          >
+            {PRIORITY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+
+          <Input
+            id="due_date"
+            label="Due date"
+            name="due_date"
+            onChange={handleChange}
+            type="date"
+            value={formData.due_date}
+          />
+
+          <Input
+            hint="쉼표로 구분합니다."
+            id="tagsText"
+            label="Tags"
+            name="tagsText"
+            onChange={handleChange}
+            placeholder="backend, rag, qa"
+            value={formData.tagsText}
+          />
+        </aside>
       </div>
 
-      <div style={{ marginBottom: '16px' }}>
-        <label htmlFor="content">내용</label>
-        <br />
-        <textarea
-          id="content"
-          name="content"
-          value={formData.content}
-          onChange={handleChange}
-          required
-          rows={8}
-          style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-        />
+      {error && <ErrorMessage message={error} />}
+
+      <div className="form-actions">
+        <Button tone="primary" type="submit" disabled={!canSubmit}>
+          {isSubmitting ? '저장 중' : submitLabel}
+        </Button>
+        {!canSubmit && !isSubmitting && (
+          <span className="subtle">제목과 내용을 입력하면 저장할 수 있습니다.</span>
+        )}
       </div>
-
-      <div style={{ marginBottom: '16px' }}>
-        <label htmlFor="type">종류</label>
-        <br />
-        <select
-          id="type"
-          name="type"
-          value={formData.type}
-          onChange={handleChange}
-        >
-          {TYPE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div style={{ marginBottom: '16px' }}>
-        <label htmlFor="status">상태</label>
-        <br />
-        <select
-          id="status"
-          name="status"
-          value={formData.status}
-          onChange={handleChange}
-        >
-          {STATUS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div style={{ marginBottom: '16px' }}>
-        <label htmlFor="priority">우선순위</label>
-        <br />
-        <select
-          id="priority"
-          name="priority"
-          value={formData.priority}
-          onChange={handleChange}
-        >
-          {PRIORITY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div style={{ marginBottom: '16px' }}>
-        <label htmlFor="due_date">마감일</label>
-        <br />
-        <input
-          id="due_date"
-          name="due_date"
-          type="date"
-          value={formData.due_date}
-          onChange={handleChange}
-        />
-      </div>
-
-      <div style={{ marginBottom: '16px' }}>
-        <label htmlFor="tagsText">태그</label>
-        <br />
-        <input
-          id="tagsText"
-          name="tagsText"
-          value={formData.tagsText}
-          onChange={handleChange}
-          placeholder="backend, auth, jwt"
-          style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-        />
-        <p style={{ fontSize: '14px', color: '#666' }}>
-          쉼표로 구분해서 입력하세요. 예: backend, auth, jwt
-        </p>
-      </div>
-
-      {error && <p style={{ color: 'red' }}>에러: {error}</p>}
-
-      <button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? '저장 중...' : submitLabel}
-      </button>
-    </form>
+    </Card>
   )
 }
 
