@@ -322,6 +322,9 @@ def sync_documents(
     return sync_all_documents(
         notion_limit=request.notion_limit,
         post_limit=request.post_limit,
+        github_issue_limit=request.github_issue_limit,
+        github_pr_limit=request.github_pr_limit,
+        github_commit_limit=request.github_commit_limit,
     )
 
 

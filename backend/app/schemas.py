@@ -137,3 +137,6 @@ class AskDocsRequest(BaseModel):
 class SyncDocumentsRequest(BaseModel):
     notion_limit: int = 20
     post_limit: int = 100
+    github_issue_limit: int = 20
+    github_pr_limit: int = 20
+    github_commit_limit: int = 20

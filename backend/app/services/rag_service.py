@@ -1,4 +1,6 @@
 import os
+import subprocess
+from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -12,11 +14,17 @@ from app.services.embedding_service import (
     create_embedding,
     vector_to_pgvector,
 )
+from app.services.github_service import (
+    list_github_issues,
+    list_github_pull_requests,
+    list_recent_commits,
+)
 from app.services.notion_service import get_notion_doc_detail, list_notion_docs
 
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 if DATABASE_URL is None:
     raise RuntimeError("DATABASE_URL is not set")
@@ -236,13 +244,18 @@ def sync_notion_documents(limit: int = 20) -> dict[str, Any]:
 
 
 def build_post_document_text(post: dict[str, Any]) -> str:
+    tags = ", ".join(post.get("tags") or []) or "none"
+
     return f"""
 게시글 ID: {post["id"]}
 제목: {post["title"]}
+작성자: {post.get("author_nickname") or "unknown"}
+GitHub 담당자: {post.get("github_username") or "none"}
 타입: {post["type"]}
 상태: {post["status"]}
 우선순위: {post["priority"]}
 마감일: {post.get("due_date")}
+태그: {tags}
 내용:
 {post["content"]}
 """.strip()
@@ -254,19 +267,35 @@ def fetch_board_posts(limit: int = 100) -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT
-                    id,
-                    user_id,
-                    type,
-                    title,
-                    content,
-                    status,
-                    priority,
-                    due_date,
-                    created_at,
-                    updated_at
-                FROM posts
-                WHERE type IN ('daily_log', 'task', 'blocker', 'discussion')
-                ORDER BY updated_at DESC
+                    p.id,
+                    p.user_id,
+                    u.nickname AS author_nickname,
+                    u.github_username,
+                    p.type,
+                    p.title,
+                    p.content,
+                    p.status,
+                    p.priority,
+                    p.due_date,
+                    p.created_at,
+                    p.updated_at,
+                    COALESCE(
+                        ARRAY_REMOVE(ARRAY_AGG(t.name ORDER BY t.name), NULL),
+                        ARRAY[]::varchar[]
+                    ) AS tags
+                FROM posts p
+                LEFT JOIN users u ON u.id = p.user_id
+                LEFT JOIN post_tags pt ON pt.post_id = p.id
+                LEFT JOIN tags t ON t.id = pt.tag_id
+                WHERE p.type IN (
+                    'daily_log',
+                    'task',
+                    'blocker',
+                    'discussion',
+                    'retrospective'
+                )
+                GROUP BY p.id, u.nickname, u.github_username
+                ORDER BY p.updated_at DESC
                 LIMIT %s
                 """,
                 (limit,),
@@ -331,9 +360,251 @@ def sync_board_posts(limit: int = 100) -> dict[str, Any]:
     }
 
 
+def build_github_issue_document_text(issue: dict[str, Any]) -> str:
+    return f"""
+GitHub issue #{issue["number"]}
+title: {issue["title"]}
+state: {issue["state"]}
+author: {issue.get("user")}
+assignees: {", ".join(issue.get("assignees", [])) or "none"}
+labels: {", ".join(issue.get("labels", [])) or "none"}
+created_at: {issue.get("created_at")}
+updated_at: {issue.get("updated_at")}
+url: {issue.get("url")}
+""".strip()
+
+
+def build_github_pr_document_text(pull: dict[str, Any]) -> str:
+    return f"""
+GitHub pull request #{pull["number"]}
+title: {pull["title"]}
+state: {pull["state"]}
+author: {pull.get("user")}
+draft: {pull.get("draft", False)}
+created_at: {pull.get("created_at")}
+updated_at: {pull.get("updated_at")}
+url: {pull.get("url")}
+""".strip()
+
+
+def build_github_commit_document_text(commit: dict[str, Any]) -> str:
+    return f"""
+GitHub commit {commit["sha"]}
+message: {commit["message"]}
+author: {commit.get("author")}
+date: {commit.get("date")}
+url: {commit.get("url")}
+full_sha: {commit.get("full_sha")}
+""".strip()
+
+
+def sync_github_documents(
+    issue_limit: int = 20,
+    pr_limit: int = 20,
+    commit_limit: int = 20,
+) -> dict[str, Any]:
+    synced_documents = 0
+    synced_chunks = 0
+    warnings = []
+
+    try:
+        issues = list_github_issues(state="open", per_page=issue_limit)
+    except Exception as exc:
+        issues = []
+        warnings.append(f"GitHub issue sync failed: {exc}")
+
+    try:
+        pulls = list_github_pull_requests(state="open", per_page=pr_limit)
+    except Exception as exc:
+        pulls = []
+        warnings.append(f"GitHub PR sync failed: {exc}")
+
+    try:
+        commits = list_recent_commits(per_page=commit_limit)
+    except Exception as exc:
+        commits = []
+        warnings.append(f"GitHub commit sync failed: {exc}")
+
+    sources = []
+
+    for issue in issues:
+        sources.append(
+            {
+                "source_type": "github_issue",
+                "source_id": str(issue["number"]),
+                "source_title": f"Issue #{issue['number']} {issue['title']}",
+                "source_url": issue.get("url"),
+                "text": build_github_issue_document_text(issue),
+                "metadata": issue,
+            }
+        )
+
+    for pull in pulls:
+        sources.append(
+            {
+                "source_type": "github_pr",
+                "source_id": str(pull["number"]),
+                "source_title": f"PR #{pull['number']} {pull['title']}",
+                "source_url": pull.get("url"),
+                "text": build_github_pr_document_text(pull),
+                "metadata": pull,
+            }
+        )
+
+    for commit in commits:
+        sources.append(
+            {
+                "source_type": "github_commit",
+                "source_id": commit["full_sha"],
+                "source_title": f"Commit {commit['sha']} {commit['message'].splitlines()[0]}",
+                "source_url": commit.get("url"),
+                "text": build_github_commit_document_text(commit),
+                "metadata": commit,
+            }
+        )
+
+    with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM document_embeddings
+                WHERE source_type IN ('github_issue', 'github_pr', 'github_commit')
+                """
+            )
+
+            for source in sources:
+                try:
+                    chunks = chunk_text(source["text"])
+
+                    for chunk_index, chunk in enumerate(chunks):
+                        insert_embedding_chunk(
+                            cur,
+                            source_type=source["source_type"],
+                            source_id=source["source_id"],
+                            source_title=source["source_title"],
+                            source_url=source["source_url"],
+                            chunk_index=chunk_index,
+                            chunk_text_value=chunk,
+                            metadata=source["metadata"],
+                        )
+                        synced_chunks += 1
+
+                    synced_documents += 1
+
+                except Exception as exc:
+                    warnings.append(
+                        f"GitHub source sync failed: {source['source_title']} - {exc}"
+                    )
+
+    return {
+        "synced_documents": synced_documents,
+        "synced_chunks": synced_chunks,
+        "warnings": warnings,
+    }
+
+
+def run_git_command(args: list[str]) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+        check=False,
+    )
+
+    output = "\n".join(
+        part.strip()
+        for part in [completed.stdout, completed.stderr]
+        if part.strip()
+    )
+
+    if completed.returncode != 0:
+        return f"command failed: git {' '.join(args)}\n{output}".strip()
+
+    return output
+
+
+def build_git_status_document_text() -> str:
+    branch_status = run_git_command(["status", "--short", "--branch"])
+    recent_log = run_git_command(
+        ["log", "--oneline", "--decorate", "--max-count=8"]
+    )
+    diff_stat = run_git_command(["diff", "--stat"])
+
+    return f"""
+Git working tree status
+repository: {REPO_ROOT}
+
+branch and changed files:
+{branch_status or "clean"}
+
+recent commits:
+{recent_log or "no commits"}
+
+uncommitted diff summary:
+{diff_stat or "no unstaged diff"}
+""".strip()
+
+
+def sync_git_status_document() -> dict[str, Any]:
+    synced_documents = 0
+    synced_chunks = 0
+    warnings = []
+
+    try:
+        document_text = build_git_status_document_text()
+    except Exception as exc:
+        return {
+            "synced_documents": 0,
+            "synced_chunks": 0,
+            "warnings": [f"Git status sync failed: {exc}"],
+        }
+
+    with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM document_embeddings
+                WHERE source_type = 'git_status'
+                """
+            )
+
+            try:
+                chunks = chunk_text(document_text)
+
+                for chunk_index, chunk in enumerate(chunks):
+                    insert_embedding_chunk(
+                        cur,
+                        source_type="git_status",
+                        source_id="working_tree",
+                        source_title="Current Git working tree status",
+                        source_url=None,
+                        chunk_index=chunk_index,
+                        chunk_text_value=chunk,
+                        metadata={"repository": str(REPO_ROOT)},
+                    )
+                    synced_chunks += 1
+
+                synced_documents = 1 if chunks else 0
+            except Exception as exc:
+                warnings.append(f"Git status source sync failed: {exc}")
+
+    return {
+        "synced_documents": synced_documents,
+        "synced_chunks": synced_chunks,
+        "warnings": warnings,
+    }
+
+
 def sync_all_documents(
     notion_limit: int = 20,
     post_limit: int = 100,
+    github_issue_limit: int = 20,
+    github_pr_limit: int = 20,
+    github_commit_limit: int = 20,
 ) -> dict[str, Any]:
     result = {
         "notion": {
@@ -346,26 +617,54 @@ def sync_all_documents(
             "synced_chunks": 0,
             "warnings": [],
         },
+        "github": {
+            "synced_documents": 0,
+            "synced_chunks": 0,
+            "warnings": [],
+        },
+        "git": {
+            "synced_documents": 0,
+            "synced_chunks": 0,
+            "warnings": [],
+        },
     }
 
     try:
         result["notion"] = sync_notion_documents(limit=notion_limit)
     except Exception as exc:
-        result["notion"]["warnings"].append(f"Notion 전체 sync 실패: {exc}")
+        result["notion"]["warnings"].append(f"Notion full sync failed: {exc}")
 
     try:
         result["posts"] = sync_board_posts(limit=post_limit)
     except Exception as exc:
-        result["posts"]["warnings"].append(f"게시판 전체 sync 실패: {exc}")
+        result["posts"]["warnings"].append(f"Board post full sync failed: {exc}")
+
+    try:
+        result["github"] = sync_github_documents(
+            issue_limit=github_issue_limit,
+            pr_limit=github_pr_limit,
+            commit_limit=github_commit_limit,
+        )
+    except Exception as exc:
+        result["github"]["warnings"].append(f"GitHub full sync failed: {exc}")
+
+    try:
+        result["git"] = sync_git_status_document()
+    except Exception as exc:
+        result["git"]["warnings"].append(f"Git status full sync failed: {exc}")
 
     return {
         "synced_documents": (
             result["notion"]["synced_documents"]
             + result["posts"]["synced_documents"]
+            + result["github"]["synced_documents"]
+            + result["git"]["synced_documents"]
         ),
         "synced_chunks": (
             result["notion"]["synced_chunks"]
             + result["posts"]["synced_chunks"]
+            + result["github"]["synced_chunks"]
+            + result["git"]["synced_chunks"]
         ),
         "details": result,
     }

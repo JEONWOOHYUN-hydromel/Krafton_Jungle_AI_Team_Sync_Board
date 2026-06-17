@@ -350,7 +350,11 @@ def get_posts(
     keyword: str | None = None,
     type: str | None = None,
     status: str | None = None,
+    priority: str | None = None,
     tag: str | None = None,
+    user_id: int | None = None,
+    due_soon: bool = False,
+    sort: str = Query(default="latest"),
 ):
     where_clauses = []
     params = []
@@ -368,6 +372,10 @@ def get_posts(
         where_clauses.append("status = %s")
         params.append(status)
 
+    if priority:
+        where_clauses.append("priority = %s")
+        params.append(priority)
+
     if tag:
         where_clauses.append(
             """
@@ -382,12 +390,41 @@ def get_posts(
         )
         params.append(tag.strip().lower())
 
+    if user_id:
+        where_clauses.append("user_id = %s")
+        params.append(user_id)
+
+    if due_soon:
+        where_clauses.append(
+            """
+            due_date IS NOT NULL
+            AND due_date >= CURRENT_DATE
+            AND due_date <= CURRENT_DATE + INTERVAL '7 days'
+            AND status != 'done'
+            """
+        )
+
     where_sql = ""
 
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
     offset = (page - 1) * size
+    order_sql = {
+        "latest": "created_at DESC, id DESC",
+        "updated": "updated_at DESC, id DESC",
+        "due_date": "due_date IS NULL ASC, due_date ASC, id DESC",
+        "priority": """
+            CASE priority
+                WHEN 'high' THEN 1
+                WHEN 'medium' THEN 2
+                WHEN 'low' THEN 3
+                ELSE 4
+            END ASC,
+            updated_at DESC,
+            id DESC
+        """,
+    }.get(sort, "created_at DESC, id DESC")
 
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
@@ -416,7 +453,7 @@ def get_posts(
                     updated_at
                 FROM posts
                 {where_sql}
-                ORDER BY id DESC
+                ORDER BY {order_sql}
                 LIMIT %s OFFSET %s
                 """,
                 tuple(params + [size, offset]),
