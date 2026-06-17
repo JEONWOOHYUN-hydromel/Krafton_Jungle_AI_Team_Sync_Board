@@ -1249,16 +1249,18 @@ button.danger {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .detail-content {
   display: grid;
+  align-content: start;
   gap: 18px;
 }
 
 .detail-aside {
   display: grid;
+  align-content: start;
   gap: 16px;
 }
 
